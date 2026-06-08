@@ -91,12 +91,12 @@ def compaction(
     # closure mutates `state` in place; it is the single source of truth.
     #
     # `track` registers the state for checkpointing and returns either the
-    # fresh instance (no checkpointer / fresh run) or the value captured at
-    # the last fire (resume). The `lambda: state` callback hands the live
-    # instance to each fire; track never invokes it during registration, so
-    # closing over `state` before this assignment completes is safe.
-    state = _CompactionState()
-    state = checkpointer.track("compaction", lambda: state, state)
+    # fresh instance passed as initial_value (no checkpointer / fresh run) or
+    # the value captured at the last fire (resume). The `lambda: state`
+    # callback hands the live instance to each fire; track never invokes it
+    # during registration, so closing over `state` before this assignment
+    # completes is safe.
+    state = checkpointer.track("compaction", lambda: state, _CompactionState())
 
     # snapshot the prefix in case it changes
     prefix = prefix.copy()
