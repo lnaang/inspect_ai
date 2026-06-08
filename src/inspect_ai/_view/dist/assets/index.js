@@ -42427,7 +42427,7 @@ function escapedSplit(str) {
 	result.push(current + str.substring(lastPos));
 	return result;
 }
-function table$3(state, startLine, endLine, silent) {
+function table$2(state, startLine, endLine, silent) {
 	if (startLine + 2 > endLine) return false;
 	let nextLine = startLine + 1;
 	if (state.sCount[nextLine] < state.blkIndent) return false;
@@ -43276,7 +43276,7 @@ function paragraph(state, startLine, endLine) {
 var _rules$1 = [
 	[
 		"table",
-		table$3,
+		table$2,
 		["paragraph", "reference"]
 	],
 	["code", code$5],
@@ -162205,6 +162205,7 @@ var toDisplayScorers = (scores) => {
 				const metric = score.metrics[key];
 				return {
 					name: metric.name,
+					group: metric.group,
 					value: metric.value,
 					params: metric.params
 				};
@@ -162272,6 +162273,24 @@ var expandGroupedMetrics = (scorers) => {
 };
 //#endregion
 //#region src/scoring/scores.ts
+/**
+* Partition metrics into runs of consecutive entries sharing the same
+* `group`. Used to render grouped column headers for dict-returning metrics
+* (e.g. one "frequency" header spanning per-category sub-columns).
+*/
+var groupMetricRuns = (metrics) => {
+	const runs = [];
+	for (const m of metrics) {
+		const last = runs[runs.length - 1];
+		if (last && (last.group ?? null) === (m.group ?? null)) last.metrics.push(m);
+		else runs.push({
+			group: m.group,
+			metrics: [m]
+		});
+	}
+	return runs;
+};
+var isGroupRun = (r) => r.group != null && r.metrics.length > 1;
 var groupScorers = (scorers) => {
 	const results = {};
 	scorers.forEach((scorer) => {
@@ -162284,7 +162303,7 @@ var groupScorers = (scorers) => {
 	return Object.values(results);
 };
 var metricsKey = (metrics) => {
-	return metrics.map((m) => m.name).join("");
+	return metrics.map((m) => `${m.group ?? ""}::${m.name}`).join("|");
 };
 var CollapsedTitleBar_module_default = {
 	container: "_container_w43k4_1",
@@ -162319,11 +162338,15 @@ var ResultsPanel_module_default = {
 	scoringDetailModal: "_scoringDetailModal_13tuz_104"
 };
 var ScoreAgGrid_module_default = {
-	gridContainer: "_gridContainer_2wkq3_1",
-	firstCell: "_firstCell_2wkq3_12",
-	firstHeader: "_firstHeader_2wkq3_13",
-	lastCell: "_lastCell_2wkq3_17",
-	lastHeader: "_lastHeader_2wkq3_18"
+	gridContainer: "_gridContainer_1tzui_1",
+	cardContainer: "_cardContainer_1tzui_9",
+	firstCell: "_firstCell_1tzui_20",
+	firstHeader: "_firstHeader_1tzui_42",
+	lastCell: "_lastCell_1tzui_46",
+	lastHeader: "_lastHeader_1tzui_47",
+	groupHeader: "_groupHeader_1tzui_51",
+	noGroupBorder: "_noGroupBorder_1tzui_58",
+	groupGrid: "_groupGrid_1tzui_62"
 };
 var UnscoredSamplesView_module_default = { unscoredSamples: "_unscoredSamples_1h85z_1" };
 //#endregion
@@ -162345,152 +162368,151 @@ var UnscoredSamples = ({ scoredSamples, unscoredSamples }) => {
 };
 //#endregion
 //#region src/app/log-view/title-view/ScoreAgGrid.tsx
-var ScoreAgGrid = ({ scoreGroups, showReducer, className }) => {
-	const kScorerColWidth = 280;
-	const kMetricColWidth = 120;
-	const { rowData, columnDefs, naturalWidth } = (0, import_react.useMemo)(() => {
-		const metricNames = [];
-		const metricNameSet = /* @__PURE__ */ new Set();
-		for (const group of scoreGroups) for (const score of group) for (const metric of score.metrics) if (!metricNameSet.has(metric.name)) {
-			metricNameSet.add(metric.name);
-			metricNames.push(metric.name);
-		}
-		const rows = [];
-		for (const group of scoreGroups) for (const score of group) {
+var scoreGridTheme = themeBalham.withParams({
+	fontFamily: "inherit",
+	backgroundColor: "transparent",
+	foregroundColor: "var(--bs-body-color)",
+	headerBackgroundColor: "transparent",
+	headerTextColor: "var(--bs-secondary-color)",
+	oddRowBackgroundColor: "transparent",
+	borderColor: "var(--bs-border-color)",
+	rowBorder: {
+		width: 1,
+		color: "var(--bs-border-color-translucent)"
+	},
+	headerRowBorder: {
+		width: 1,
+		color: "var(--bs-border-color)"
+	},
+	wrapperBorder: false,
+	columnBorder: false,
+	headerColumnBorder: false
+});
+var scoreGridThemeCompact = scoreGridTheme.withParams({
+	fontSize: 12,
+	headerFontSize: 11,
+	cellHorizontalPadding: 8
+});
+var kScorerColWidth = 180;
+var kMetricColWidth = 120;
+var kScorerColWidthCompact = 110;
+var kMetricColWidthCompact = 64;
+var ScoreAgGrid = ({ scoreGroups, showReducer, className, compact }) => {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+		className: clsx(className, compact ? ScoreAgGrid_module_default.cardContainer : ScoreAgGrid_module_default.gridContainer),
+		children: scoreGroups.map((group, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ScoreGroupGrid, {
+			scoreGroup: group,
+			showReducer,
+			compact
+		}, i))
+	});
+};
+var ScoreGroupGrid = ({ scoreGroup, showReducer, compact }) => {
+	const scorerColWidth = compact ? kScorerColWidthCompact : kScorerColWidth;
+	const metricColWidth = compact ? kMetricColWidthCompact : kMetricColWidth;
+	const resizable = !compact;
+	const { rowData, columnDefs, hasGroups, naturalWidth } = (0, import_react.useMemo)(() => {
+		const metrics = scoreGroup[0]?.metrics ?? [];
+		const field = (i) => `metric_${i}`;
+		const rows = scoreGroup.map((score) => {
 			const row = {
 				scorer: score.scorer + (showReducer && score.reducer ? ` (${score.reducer})` : ""),
 				scoredSamples: score.scoredSamples,
 				unscoredSamples: score.unscoredSamples
 			};
-			for (const metric of score.metrics) row[`metric_${metric.name}`] = metric.value;
-			rows.push(row);
+			score.metrics.forEach((m, i) => {
+				row[field(i)] = m.value;
+			});
+			return row;
+		});
+		const lastIdx = metrics.length - 1;
+		const runs = groupMetricRuns(metrics);
+		const grouped = runs.some(isGroupRun);
+		const leafCol = (name, i, inGroup) => ({
+			headerName: name,
+			field: field(i),
+			sortable: true,
+			resizable,
+			width: metricColWidth,
+			cellClass: clsx("ag-right-aligned-cell", i === lastIdx && ScoreAgGrid_module_default.lastCell),
+			headerClass: clsx("ag-right-aligned-header", i === lastIdx && ScoreAgGrid_module_default.lastHeader, grouped && !inGroup && ScoreAgGrid_module_default.noGroupBorder),
+			valueFormatter: (params) => {
+				if (params.value == null) return "";
+				return formatPrettyDecimal(params.value);
+			},
+			type: "numericColumn"
+		});
+		const metricColumns = [];
+		let idx = 0;
+		for (const run of runs) {
+			const inGroup = isGroupRun(run);
+			const children = run.metrics.map((m) => leafCol(m.name, idx++, inGroup));
+			if (inGroup) metricColumns.push({
+				headerName: run.group ?? "",
+				headerClass: ScoreAgGrid_module_default.groupHeader,
+				suppressStickyLabel: true,
+				children
+			});
+			else metricColumns.push(...children);
 		}
-		const lastIdx = metricNames.length - 1;
+		const scorerCol = {
+			headerName: "Scorer",
+			field: "scorer",
+			sortable: true,
+			resizable,
+			width: scorerColWidth,
+			minWidth: compact ? 90 : 150,
+			cellClass: ScoreAgGrid_module_default.firstCell,
+			headerClass: clsx(ScoreAgGrid_module_default.firstHeader, grouped && ScoreAgGrid_module_default.noGroupBorder),
+			cellRenderer: (params) => {
+				const data = params.data;
+				if (!data) return null;
+				return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+					data.scorer,
+					" ",
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)(UnscoredSamples, {
+						scoredSamples: data.scoredSamples || 0,
+						unscoredSamples: data.unscoredSamples || 0
+					})
+				] });
+			}
+		};
 		return {
 			rowData: rows,
-			columnDefs: [{
-				headerName: "Scorer",
-				field: "scorer",
-				sortable: true,
-				resizable: true,
-				width: kScorerColWidth,
-				minWidth: 150,
-				cellClass: ScoreAgGrid_module_default.firstCell,
-				headerClass: ScoreAgGrid_module_default.firstHeader,
-				cellRenderer: (params) => {
-					const data = params.data;
-					if (!data) return null;
-					return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
-						data.scorer,
-						" ",
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)(UnscoredSamples, {
-							scoredSamples: data.scoredSamples || 0,
-							unscoredSamples: data.unscoredSamples || 0
-						})
-					] });
-				}
-			}, ...metricNames.map((name, i) => ({
-				headerName: name,
-				field: `metric_${name}`,
-				sortable: true,
-				resizable: true,
-				width: kMetricColWidth,
-				cellClass: i === lastIdx ? ScoreAgGrid_module_default.lastCell : void 0,
-				headerClass: i === lastIdx ? ScoreAgGrid_module_default.lastHeader : void 0,
-				valueFormatter: (params) => {
-					if (params.value == null) return "";
-					return formatPrettyDecimal(params.value);
-				},
-				type: "numericColumn"
-			}))],
-			naturalWidth: kScorerColWidth + metricNames.length * kMetricColWidth
+			columnDefs: [grouped ? {
+				headerName: "",
+				children: [scorerCol]
+			} : scorerCol, ...metricColumns],
+			hasGroups: grouped,
+			naturalWidth: scorerColWidth + metrics.length * metricColWidth
 		};
-	}, [scoreGroups, showReducer]);
+	}, [
+		scoreGroup,
+		showReducer,
+		compact,
+		resizable,
+		scorerColWidth,
+		metricColWidth
+	]);
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-		className: clsx(className, ScoreAgGrid_module_default.gridContainer),
-		style: { width: naturalWidth },
-		children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AgGridReact, {
-			rowData,
-			columnDefs,
-			theme: themeBalham,
-			domLayout: "autoHeight",
-			headerHeight: 28,
-			rowHeight: 32,
-			suppressCellFocus: true,
-			enableCellTextSelection: true,
-			animateRows: false
-		})
-	});
-};
-var ScoreGrid_module_default = {
-	table: "_table_12koy_1",
-	scorer: "_scorer_12koy_5",
-	value: "_value_12koy_6",
-	label: "_label_12koy_11",
-	groupSeparator: "_groupSeparator_12koy_28",
-	tableBody: "_tableBody_12koy_33",
-	tableSeparator: "_tableSeparator_12koy_45"
-};
-//#endregion
-//#region src/app/log-view/title-view/ScoreGrid.tsx
-var ScoreGrid = ({ scoreGroups, showReducer, className, striped }) => {
-	const columnCount = scoreGroups.reduce((prev, group) => {
-		return Math.max(prev, group[0].metrics.length);
-	}, 0);
-	const subTables = [];
-	let index = 0;
-	for (const scoreGroup of scoreGroups) {
-		const metrics = scoreGroup[0].metrics;
-		const cells = [];
-		for (let i = 0; i < columnCount; i++) if (metrics.length > i) cells.push(/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
-			className: clsx("text-style-label", "text-style-secondary", "text-size-small", ScoreGrid_module_default.label),
-			children: metrics[i].name
-		}, i));
-		else cells.push(/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {}, i));
-		const headerRow = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", {
-			className: clsx(ScoreGrid_module_default.headerRow),
-			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {}), cells]
-		}) });
-		const rows = [];
-		scoreGroup.forEach((g, rowIndex) => {
-			const cells = [];
-			for (let i = 0; i < columnCount; i++) if (metrics.length > i) cells.push(/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
-				className: clsx(ScoreGrid_module_default.value, "text-size-small"),
-				children: formatPrettyDecimal(g.metrics[i].value)
-			}, i));
-			else cells.push(/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { className: clsx(ScoreGrid_module_default.value) }, i));
-			rows.push(/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("th", {
-				className: clsx(ScoreGrid_module_default.scorer, "text-size-small"),
-				children: [
-					g.scorer,
-					" ",
-					showReducer && g.reducer ? `(${g.reducer})` : void 0,
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)(UnscoredSamples, {
-						scoredSamples: g.scoredSamples || 0,
-						unscoredSamples: g.unscoredSamples || 0
-					})
-				]
-			}), cells] }, rowIndex));
-		});
-		subTables.push(/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_react.Fragment, { children: [
-			index > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tbody", {
-				className: clsx(ScoreGrid_module_default.tableSeparator),
-				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tr", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
-					colSpan: columnCount + 1,
-					className: clsx(ScoreGrid_module_default.groupSeparator)
-				}) })
-			}) : void 0,
-			headerRow,
-			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("tbody", {
-				className: clsx("table-group-divider", ScoreGrid_module_default.tableBody),
-				children: rows
+		className: ScoreAgGrid_module_default.groupGrid,
+		children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			style: { width: naturalWidth },
+			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AgGridReact, {
+				rowData,
+				columnDefs,
+				theme: compact ? scoreGridThemeCompact : scoreGridTheme,
+				domLayout: "autoHeight",
+				headerHeight: compact ? 24 : 28,
+				groupHeaderHeight: hasGroups ? compact ? 20 : 24 : 0,
+				rowHeight: compact ? 26 : 32,
+				suppressCellFocus: true,
+				suppressRowHoverHighlight: true,
+				suppressFieldDotNotation: true,
+				enableCellTextSelection: true,
+				animateRows: false
 			})
-		] }, index));
-		index++;
-	}
-	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("table", {
-		className: clsx(className, "table", striped ? "table-striped" : void 0, ScoreGrid_module_default.table, "table-bordered"),
-		children: subTables
+		})
 	});
 };
 //#endregion
@@ -162564,9 +162586,10 @@ var ResultsPanel = ({ scorers }) => {
 		}
 		return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 			className: clsx(ResultsPanel_module_default.metricsSummary),
-			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ScoreGrid, {
+			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ScoreAgGrid, {
 				scoreGroups: [primaryResults],
-				showReducer
+				showReducer,
+				compact: true
 			}), showMore ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Modal, {
 				id: "results-metrics",
 				showing,

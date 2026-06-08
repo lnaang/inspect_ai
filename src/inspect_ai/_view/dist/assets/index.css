@@ -15709,15 +15709,11 @@ pre[class*="language-"] {
   padding: 1em;
   margin: 0.5em 0;
   overflow: auto;
-  /* border: 0.3em solid #7a6651; */
   border-radius: 0.5em;
-  box-shadow: 1px 1px 0.5em #000 inset;
 }
 .vscode-dark :not(pre) > code[class*="language-"] {
   padding: 0.15em 0.2em 0.05em;
   border-radius: 0.3em;
-  /* border: 0.13em solid #7a6651; */
-  box-shadow: 1px 1px 0.3em -0.1em #000 inset;
   white-space: normal;
 }
 .vscode-dark .token.cdata,
@@ -23836,80 +23832,76 @@ pre._value_8citi_25 {
   width: fit-content;
   max-width: 100%;
 }
-._gridContainer_2wkq3_1 {
+._gridContainer_1tzui_1 {
   max-width: 100%;
   max-height: 60vh;
   overflow: auto;
-  scrollbar-gutter: stable;
+  padding: 0.5rem 1rem;
+}
+
+/* Title-region summary card: size to content, no inner scroll/padding. */
+._cardContainer_1tzui_9 {
+  max-width: 100%;
+  overflow: visible;
+}
+
+._gridContainer_1tzui_1 .ag-cell,
+._cardContainer_1tzui_9 .ag-cell {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Scorer column reads as the row label — a touch heavier + higher contrast. */
+.ag-cell._firstCell_1tzui_20 {
+  font-weight: 500;
+  color: var(--bs-emphasis-color);
+}
+
+._gridContainer_1tzui_1 .ag-layout-auto-height .ag-center-cols-viewport,
+._cardContainer_1tzui_9 .ag-layout-auto-height .ag-center-cols-viewport {
+  min-height: unset;
+}
+
+/* Hide ag-grid's reserved horizontal-scroll strip — otherwise it leaves empty
+   space below the rows (most visible in the short title-region card). */
+._gridContainer_1tzui_1 .ag-body-horizontal-scroll.ag-scrollbar-invisible,
+._cardContainer_1tzui_9 .ag-body-horizontal-scroll.ag-scrollbar-invisible {
+  display: none;
 }
 
 /* Breathing room at the edges so values don't sit flush with the modal border
    (and so the last column doesn't get overlapped by the vertical scroll bar).
    The extra specificity via `:global(.ag-cell)` / `:global(.ag-header-cell)`
    is needed to win against ag-grid's built-in theme padding. */
-.ag-cell._firstCell_2wkq3_12,
-.ag-header-cell._firstHeader_2wkq3_13 {
+.ag-cell._firstCell_1tzui_20,
+.ag-header-cell._firstHeader_1tzui_42 {
   padding-left: 1rem;
 }
 
-.ag-cell._lastCell_2wkq3_17,
-.ag-header-cell._lastHeader_2wkq3_18 {
+.ag-cell._lastCell_1tzui_46,
+.ag-header-cell._lastHeader_1tzui_47 {
   padding-right: 0.5rem;
+}
+
+.ag-header-group-cell._groupHeader_1tzui_51
+  .ag-header-group-cell-label {
+  justify-content: center;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.ag-header-cell._noGroupBorder_1tzui_58 {
+  border-top-color: transparent;
+}
+
+._groupGrid_1tzui_62 + ._groupGrid_1tzui_62 {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: solid 1px var(--bs-light-border-subtle);
 }
 ._unscoredSamples_1h85z_1 {
   margin-left: 0.2rem;
   margin-right: 0.2rem;
   cursor: pointer;
-}
-._table_12koy_1 {
-  margin-bottom: 0;
-}
-
-._scorer_12koy_5,
-._value_12koy_6 {
-  padding-top: 0.2em !important;
-  padding-bottom: 0.2em !important;
-}
-
-._label_12koy_11,
-._value_12koy_6 {
-  text-align: center;
-  padding-left: 1em;
-  padding-right: 1em;
-}
-
-._label_12koy_11 {
-  font-weight: 400;
-  padding-left: 1em;
-  padding-right: 1em;
-}
-
-._scorer_12koy_5 {
-  font-weight: 400;
-}
-
-._groupSeparator_12koy_28 {
-  padding-top: 2em;
-  border-bottom: hidden;
-}
-
-._tableBody_12koy_33 {
-  border-top-color: var(--bs-light-border-subtle);
-}
-
-thead,
-thead tr,
-thead td,
-thead th {
-  border: none !important;
-  padding: 0 !important;
-}
-
-._tableSeparator_12koy_45,
-._tableSeparator_12koy_45 tr,
-._tableSeparator_12koy_45 td,
-._tableSeparator_12koy_45 th {
-  border: none !important;
 }
 ._downloadLogButton_fi3zx_1 {
   border: none;
