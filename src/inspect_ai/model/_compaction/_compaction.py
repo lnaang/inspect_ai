@@ -4,9 +4,12 @@ from logging import getLogger
 from typing import Sequence
 
 import anyio
+from pydantic import BaseModel, Field
 
 from inspect_ai._util.content import ContentReasoning
 from inspect_ai.tool import Tool, ToolDef, ToolInfo, ToolSource
+from inspect_ai.util._checkpoint import Checkpointer
+from inspect_ai.util._checkpoint.checkpointer_noop import _NoopCheckpointer
 
 from .._call_tools import get_tools_info, resolve_tools
 from .._chat_message import ChatMessage, ChatMessageAssistant, ChatMessageUser
@@ -23,12 +26,42 @@ from .types import Compact, CompactionStrategy
 
 logger = getLogger(__name__)
 
+# stateless no-op session used when the caller has no checkpointer; its
+# track() returns initial_value and never registers, so the compaction
+# handler needs no special-casing
+_NOOP_CHECKPOINTER: Checkpointer = _NoopCheckpointer()
+
+
+class _CompactionState(BaseModel):
+    """Checkpointable state held by a `compaction()` handler.
+
+    Captured at each checkpoint fire and restored on resume so a resumed
+    session continues from the prior compacted view rather than re-deriving
+    (and, for summary strategies, re-invoking the model) from scratch.
+    """
+
+    compacted_input: list[ChatMessage] = Field(default_factory=list)
+    """Reduced input actually sent to the model."""
+
+    processed_message_ids: set[str] = Field(default_factory=set)
+    """IDs of messages already folded into the input."""
+
+    baseline_tokens: int | None = None
+    """Token baseline from the last `record_output` call."""
+
+    baseline_message_ids: set[str] = Field(default_factory=set)
+    """IDs of messages that produced `baseline_tokens`."""
+
+    memory_warning_issued: bool = False
+    """Whether a pre-compaction memory warning was issued for the window."""
+
 
 def compaction(
     strategy: CompactionStrategy,
     prefix: list[ChatMessage],
     tools: Sequence[Tool | ToolDef | ToolInfo | ToolSource] | ToolSource | None = None,
     model: str | Model | None = None,
+    checkpointer: Checkpointer = _NOOP_CHECKPOINTER,
 ) -> Compact:
     """Create a conversation compaction handler.
 
@@ -44,6 +77,10 @@ def compaction(
         prefix: Chat messages to always preserve in compacted conversations.
         tools: Tool definitions (included in token count as they consume context).
         model: Target model for compacted input (defaults to active model).
+        checkpointer: Session checkpointer. The handler's internal state is
+            captured at each checkpoint fire and restored on resume so the
+            resumed session continues from the prior compacted view rather
+            than re-deriving from scratch. Defaults to a no-op session.
 
     Returns:
         `Compact` handler with `compact_input()` and `record_output()` methods.
@@ -73,6 +110,26 @@ def compaction(
     # serializes closure-state mutation when the same Compact instance is
     # shared across concurrent callers (e.g. via AgentBridge)
     _lock = anyio.Lock()
+
+    # register checkpointed state: capture the mutable closure state at each
+    # checkpoint fire and (on resume) restore it before the agent loop runs.
+    # With the no-op checkpointer track() returns the initial value and never
+    # registers, so the apply below is a no-op.
+    def snapshot() -> _CompactionState:
+        return _CompactionState(
+            compacted_input=list(compacted_input),
+            processed_message_ids=set(processed_message_ids),
+            baseline_tokens=baseline_tokens,
+            baseline_message_ids=set(baseline_message_ids),
+            memory_warning_issued=memory_warning_issued,
+        )
+
+    restored = checkpointer.track("compaction", snapshot, _CompactionState())
+    compacted_input.extend(restored.compacted_input)
+    processed_message_ids.update(restored.processed_message_ids)
+    baseline_message_ids.update(restored.baseline_message_ids)
+    baseline_tokens = restored.baseline_tokens
+    memory_warning_issued = restored.memory_warning_issued
 
     # resolve target model
     target_model = get_model(model)

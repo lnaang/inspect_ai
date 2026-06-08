@@ -1207,6 +1207,123 @@ def test_track_consumes_hydrated_agent_state(tmp_path: Path) -> None:
     assert cp._agent_state == {"other": "kept"}
 
 
+async def test_compaction_state_round_trips_through_fire(tmp_path: Path) -> None:
+    """A compaction() handler's state survives a fire → resume cycle.
+
+    The factory registers its state under the 'compaction' key; firing
+    captures it into agent_state.json and a resumed session restores the
+    identical CompactionState back into the closure.
+    """
+    from inspect_ai.model._compaction._compaction import (
+        _CompactionState,
+        compaction,
+    )
+    from inspect_ai.model._compaction.edit import CompactionEdit
+    from inspect_ai.model._model import get_model
+
+    model = get_model("mockllm/model")
+    sys = ChatMessageSystem(content="sys", id="sys1")
+    messages: list[ChatMessage] = [
+        sys,
+        ChatMessageUser(content="hello", id="u1"),
+        ChatMessageAssistant(content="hi", id="a1"),
+    ]
+
+    # fresh run: process messages, then fire to capture state
+    cp1 = _make_cp()
+    compact1 = compaction(
+        CompactionEdit(threshold=500),
+        prefix=[sys],
+        tools=None,
+        model=model,
+        checkpointer=cp1,
+    )
+    await compact1.compact_input(messages)
+
+    state = await _write_agent_state(tmp_path, cp1)
+    assert state is not None
+    assert "compaction" in state
+
+    # resume: feed the captured agent_state back in (JSON-normalized, as real
+    # hydration would after reading agent_state.json from disk)
+    hydration = _fake_hydration(str(tmp_path / "ckpts2"), str(tmp_path / "work2"))
+    hydration.host.agent_state = json.loads(json.dumps(state))
+    cp2 = _make_cp(hydration=hydration)
+    compaction(
+        CompactionEdit(threshold=500),
+        prefix=[sys],
+        tools=None,
+        model=model,
+        checkpointer=cp2,
+    )
+
+    # the 'compaction' key was consumed from the hydrated agent state
+    assert "compaction" not in cp2._agent_state
+
+    # re-snapshotting both yields identical state (resume restored the closure)
+    snap1 = cp1._on_checkpoint_callbacks["compaction"]()
+    snap2 = cp2._on_checkpoint_callbacks["compaction"]()
+    assert isinstance(snap1, _CompactionState)
+    assert isinstance(snap2, _CompactionState)
+    assert snap1.processed_message_ids  # non-empty: real state was captured
+    assert snap2 == snap1
+
+
+async def test_resumed_compaction_does_not_resummarize(tmp_path: Path) -> None:
+    """A resumed summary handler skips re-summarizing already-processed history.
+
+    Without restored state the resumed handler would treat the whole
+    history as unprocessed and re-invoke the model; with it, the prior
+    compacted view is honored and no compaction runs.
+    """
+    from inspect_ai.model._compaction._compaction import compaction
+    from inspect_ai.model._compaction.summary import CompactionSummary
+    from inspect_ai.model._model import get_model
+
+    model = get_model("mockllm/model")
+    sys = ChatMessageSystem(content="sys", id="sys1")
+    # large enough to exceed threshold and trigger a summary on the first pass
+    messages: list[ChatMessage] = [
+        sys,
+        ChatMessageUser(content="A" * 800, id="u1", source="input"),
+        ChatMessageAssistant(content="B" * 800, id="a1"),
+        ChatMessageUser(content="C" * 800, id="u2"),
+    ]
+
+    cp1 = _make_cp()
+    compact1 = compaction(
+        CompactionSummary(threshold=200),
+        prefix=[sys],
+        tools=None,
+        model=model,
+        checkpointer=cp1,
+    )
+    _, summary1 = await compact1.compact_input(messages)
+    assert summary1 is not None  # first pass summarized
+    # the agent appends the summary to the full history
+    history: list[ChatMessage] = messages + [summary1]
+
+    state = await _write_agent_state(tmp_path, cp1)
+    assert state is not None
+
+    # resume (JSON-normalized, as real hydration would from disk)
+    hydration = _fake_hydration(str(tmp_path / "ckpts2"), str(tmp_path / "work2"))
+    hydration.host.agent_state = json.loads(json.dumps(state))
+    cp2 = _make_cp(hydration=hydration)
+    compact2 = compaction(
+        CompactionSummary(threshold=200),
+        prefix=[sys],
+        tools=None,
+        model=model,
+        checkpointer=cp2,
+    )
+
+    # everything in `history` was processed before the fire, so the resumed
+    # handler must not re-summarize.
+    _, summary2 = await compact2.compact_input(history)
+    assert summary2 is None
+
+
 def test_seed_transcript_store_uses_history_provider_for_truncated_transcript(
     tmp_path: Path,
 ) -> None:
